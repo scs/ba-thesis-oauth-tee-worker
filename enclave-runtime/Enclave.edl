@@ -153,6 +153,8 @@ enclave {
 		);
 
 		public size_t test_main_entrance();
+
+		public sgx_status_t start_oauth();
 	};
 
 	untrusted {

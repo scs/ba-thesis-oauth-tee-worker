@@ -55,6 +55,7 @@ use itp_enclave_api::{
 	remote_attestation::{RemoteAttestation, TlsRemoteAttestation},
 	sidechain::Sidechain,
 	teeracle_api::TeeracleApi,
+	oauth::OAuth,
 	Enclave,
 };
 use itp_node_api::{
@@ -175,7 +176,7 @@ fn main() {
 		enclave_metrics_receiver,
 	)));
 
-	if let Some(run_config) = &config.run_config {
+	/*if let Some(run_config) = &config.run_config {
 		let shard = extract_shard(&run_config.shard, enclave.as_ref());
 
 		println!("Worker Config: {:?}", config);
@@ -205,6 +206,44 @@ fn main() {
 			tokio_handle,
 			initialization_handler,
 		);
+	} else*/
+
+	if let Some(run_config) = &config.run_config {
+		println!("---------- INITIALIZING OAUTH ----------");
+		if let Some(run_config) = &config.run_config {
+
+			let shard = extract_shard(&run_config.shard, enclave.as_ref());
+
+			println!("Worker Config: {:?}", config);
+
+			if clean_reset {
+				setup::initialize_shard_and_keys(enclave.as_ref(), &shard).unwrap();
+			}
+
+			let node_api =
+				node_api_factory.create_api().expect("Failed to create parentchain node API");
+
+			if run_config.request_state {
+				sync_state::sync_state::<_, _, WorkerModeProvider>(
+					&node_api,
+					&shard,
+					enclave.as_ref(),
+					run_config.skip_ra,
+				);
+			}
+			
+			
+			oauth::<_, _, _, _, WorkerModeProvider>(
+				config,
+				&shard,
+				enclave,
+				sidechain_blockstorage,
+				node_api,
+				tokio_handle,
+				initialization_handler,
+			);
+		}
+		
 	} else if let Some(smatches) = matches.subcommand_matches("request-state") {
 		println!("*** Requesting state from a registered worker \n");
 		let node_api =
@@ -270,6 +309,45 @@ fn main() {
 		println!("For options: use --help");
 	}
 }
+
+// OAUTH Logic
+fn oauth<E, T, D, InitializationHandler, WorkerModeProvider>(
+	config: Config,
+	shard: &ShardIdentifier,
+	enclave: Arc<E>,
+	sidechain_storage: Arc<D>,
+	node_api: ParentchainApi,
+	tokio_handle_getter: Arc<T>,
+	initialization_handler: Arc<InitializationHandler>,
+) where
+	T: GetTokioHandle,
+	E: EnclaveBase
+		+ DirectRequest
+		+ Sidechain
+		+ RemoteAttestation
+		+ TlsRemoteAttestation
+		+ TeeracleApi
+		+ OAuth
+		+ Clone,
+	D: BlockPruner + FetchBlocks<SignedSidechainBlock> + Sync + Send + 'static,
+	InitializationHandler: TrackInitialization + IsInitialized + Sync + Send + 'static,
+	WorkerModeProvider: ProvideWorkerMode,
+{
+	println!("IntegriTEE Worker v{}", VERSION);
+	info!("starting worker on shard {}", shard.encode().to_base58());
+	
+	// ------------------------------------------------------------------------
+	// check for required files
+	check_files();
+	// ------------------------------------------------------------------------
+	// initialize the enclave
+	println!("Initializing the enclave");
+	let mrenclave = enclave.get_mrenclave().unwrap();
+	println!("MRENCLAVE={}", mrenclave.to_base58());
+
+	enclave.start_oauth().unwrap();
+}
+
 
 /// FIXME: needs some discussion (restructuring?)
 #[allow(clippy::too_many_arguments)]

@@ -61,6 +61,9 @@ use sp_core::crypto::Pair;
 use sp_runtime::traits::BlakeTwo256;
 use std::{boxed::Box, slice, vec::Vec};
 
+#[macro_use]
+mod oauth;
+
 mod attestation;
 mod empty_impls;
 mod initialization;
@@ -204,6 +207,12 @@ pub unsafe extern "C" fn set_node_metadata(
 	node_metadata_repository.set_metadata(metadata);
 	info!("Successfully set the node meta data");
 
+	sgx_status_t::SGX_SUCCESS
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn start_oauth() -> sgx_status_t {
+	oauth::start_oauth_server();
 	sgx_status_t::SGX_SUCCESS
 }
 

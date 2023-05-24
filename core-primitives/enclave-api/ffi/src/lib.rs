@@ -207,6 +207,11 @@ extern "C" {
 		unchecked_extrinsic_size: u32,
 	) -> sgx_status_t;
 
+	pub fn start_oauth(
+		eid: sgx_enclave_id_t,
+		retval: *mut sgx_status_t,
+	) -> sgx_status_t;
+
 	pub fn run_state_provisioning_server(
 		eid: sgx_enclave_id_t,
 		retval: *mut sgx_status_t,

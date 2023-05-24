@@ -88,6 +88,9 @@ subcommands:
     - run:
         about: Start the integritee-service
         args:
+            - oauth:
+                long: oauth
+                help: launch the enclave in oauth mode
             - skip-ra:
                 long: skip-ra
                 help: skip remote attestation. Set this flag if running enclave in SW mode
