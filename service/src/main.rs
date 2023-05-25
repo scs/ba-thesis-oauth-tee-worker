@@ -333,6 +333,9 @@ fn oauth<E, T, D, InitializationHandler, WorkerModeProvider>(
 	InitializationHandler: TrackInitialization + IsInitialized + Sync + Send + 'static,
 	WorkerModeProvider: ProvideWorkerMode,
 {
+	let run_config = config.run_config.clone().expect("Run config missing");
+	let skip_ra = run_config.skip_ra;
+
 	println!("IntegriTEE Worker v{}", VERSION);
 	info!("starting worker on shard {}", shard.encode().to_base58());
 	
@@ -345,7 +348,224 @@ fn oauth<E, T, D, InitializationHandler, WorkerModeProvider>(
 	let mrenclave = enclave.get_mrenclave().unwrap();
 	println!("MRENCLAVE={}", mrenclave.to_base58());
 
-	enclave.start_oauth().unwrap();
+	// ------------------------------------------------------------------------
+	// let new workers call us for key provisioning
+	println!("MU-RA server listening on {}", config.mu_ra_url());
+	let is_development_mode = run_config.dev;
+	let ra_url = config.mu_ra_url();
+	let enclave_api_key_prov = enclave.clone();
+	thread::spawn(move || {
+		enclave_run_state_provisioning_server(
+			enclave_api_key_prov.as_ref(),
+			sgx_quote_sign_type_t::SGX_UNLINKABLE_SIGNATURE,
+			&ra_url,
+			skip_ra,
+		);
+		info!("State provisioning server stopped.");
+	});
+
+	let tokio_handle = tokio_handle_getter.get_handle();
+
+	#[cfg(feature = "teeracle")]
+	let teeracle_tokio_handle = tokio_handle.clone();
+
+// ------------------------------------------------------------------------
+	// Get the public key of our TEE.
+	let tee_accountid = enclave_account(enclave.as_ref());
+	println!("Enclave account {:} ", &tee_accountid.to_ss58check());
+
+	// ------------------------------------------------------------------------
+	// Start `is_initialized` server.
+	let untrusted_http_server_port = config
+		.try_parse_untrusted_http_server_port()
+		.expect("untrusted http server port to be a valid port number");
+	let initialization_handler_clone = initialization_handler.clone();
+	tokio_handle.spawn(async move {
+		if let Err(e) =
+			start_is_initialized_server(initialization_handler_clone, untrusted_http_server_port)
+				.await
+		{
+			error!("Unexpected error in `is_initialized` server: {:?}", e);
+		}
+	});
+
+	// ------------------------------------------------------------------------
+	// Start prometheus metrics server.
+	if config.enable_metrics_server {
+		let enclave_wallet =
+			Arc::new(EnclaveAccountInfoProvider::new(node_api.clone(), tee_accountid.clone()));
+		let metrics_handler = Arc::new(MetricsHandler::new(enclave_wallet));
+		let metrics_server_port = config
+			.try_parse_metrics_server_port()
+			.expect("metrics server port to be a valid port number");
+		tokio_handle.spawn(async move {
+			if let Err(e) = start_metrics_server(metrics_handler, metrics_server_port).await {
+				error!("Unexpected error in Prometheus metrics server: {:?}", e);
+			}
+		});
+	}
+
+	// ------------------------------------------------------------------------
+	// Start trusted worker rpc server
+	if WorkerModeProvider::worker_mode() == WorkerMode::Sidechain
+		|| WorkerModeProvider::worker_mode() == WorkerMode::OffChainWorker
+	{
+		let direct_invocation_server_addr = config.trusted_worker_url_internal();
+		let enclave_for_direct_invocation = enclave.clone();
+		thread::spawn(move || {
+			println!(
+				"[+] Trusted RPC direct invocation server listening on {}",
+				direct_invocation_server_addr
+			);
+			enclave_for_direct_invocation
+				.init_direct_invocation_server(direct_invocation_server_addr)
+				.unwrap();
+			println!("[+] RPC direct invocation server shut down");
+		});
+	}
+
+	// ------------------------------------------------------------------------
+	// Start untrusted worker rpc server.
+	// i.e move sidechain block importing to trusted worker.
+	if WorkerModeProvider::worker_mode() == WorkerMode::Sidechain {
+		sidechain_start_untrusted_rpc_server(
+			&config,
+			enclave.clone(),
+			sidechain_storage.clone(),
+			tokio_handle,
+		);
+	}
+
+	// ------------------------------------------------------------------------
+	// Init parentchain specific stuff. Needed for parentchain communication.
+	let parentchain_handler = Arc::new(
+		ParentchainHandler::new_with_automatic_light_client_allocation(
+			node_api.clone(),
+			enclave.clone(),
+		)
+		.unwrap(),
+	);
+	let last_synced_header = parentchain_handler.init_parentchain_components().unwrap();
+	let nonce = node_api.get_nonce_of(&tee_accountid).unwrap();
+	info!("Enclave nonce = {:?}", nonce);
+	enclave
+		.set_nonce(nonce)
+		.expect("Could not set nonce of enclave. Returning here...");
+
+	let metadata = node_api.metadata().clone();
+	let runtime_spec_version = node_api.runtime_version().spec_version;
+	let runtime_transaction_version = node_api.runtime_version().transaction_version;
+	enclave
+		.set_node_metadata(
+			NodeMetadata::new(metadata, runtime_spec_version, runtime_transaction_version).encode(),
+		)
+		.expect("Could not set the node metadata in the enclave");
+
+	#[cfg(feature = "dcap")]
+	register_collateral(&node_api, &*enclave, &tee_accountid, is_development_mode, skip_ra);
+
+	let trusted_url = config.trusted_worker_url_external();
+	#[cfg(feature = "dcap")]
+	let marblerun_base_url =
+		run_config.marblerun_base_url.unwrap_or("http://localhost:9944".to_owned());
+
+	#[cfg(feature = "dcap")]
+	fetch_marblerun_events_every_hour(
+		node_api.clone(),
+		enclave.clone(),
+		tee_accountid.clone(),
+		is_development_mode,
+		trusted_url.clone(),
+		marblerun_base_url.clone(),
+	);
+
+	// ------------------------------------------------------------------------
+	// Perform a remote attestation and get an unchecked extrinsic back.
+
+	if skip_ra {
+		println!(
+			"[!] skipping remote attestation. Registering enclave without attestation report."
+		);
+	} else {
+		println!("[!] creating remote attestation report and create enclave register extrinsic.");
+	};
+	#[cfg(not(feature = "dcap"))]
+	let xt = enclave.generate_ias_ra_extrinsic(&trusted_url, skip_ra).unwrap();
+	#[cfg(feature = "dcap")]
+	let xt = enclave.generate_dcap_ra_extrinsic(&trusted_url, skip_ra).unwrap();
+	let register_enclave_block_hash =
+		send_extrinsic(xt, &node_api, &tee_accountid, is_development_mode);
+
+	let register_enclave_xt_header =
+		node_api.get_header(register_enclave_block_hash).unwrap().unwrap();
+
+	let we_are_primary_validateer =
+		we_are_primary_validateer(&node_api, &register_enclave_xt_header).unwrap();
+
+	if we_are_primary_validateer {
+		println!("[+] We are the primary validateer");
+	} else {
+		println!("[+] We are NOT the primary validateer");
+	}
+
+	initialization_handler.registered_on_parentchain();
+
+	// ------------------------------------------------------------------------
+	// initialize teeracle interval
+	#[cfg(feature = "teeracle")]
+	if WorkerModeProvider::worker_mode() == WorkerMode::Teeracle {
+		start_interval_market_update(
+			&node_api,
+			run_config.teeracle_update_interval,
+			enclave.as_ref(),
+			&teeracle_tokio_handle,
+		);
+	}
+
+	if WorkerModeProvider::worker_mode() != WorkerMode::Teeracle {
+		println!("*** [+] Finished syncing light client, syncing parentchain...");
+
+		// Syncing all parentchain blocks, this might take a while..
+		let mut last_synced_header =
+			parentchain_handler.sync_parentchain(last_synced_header).unwrap();
+
+		// ------------------------------------------------------------------------
+		// Start OAUTH server
+		enclave.start_oauth().unwrap();
+		
+		// ------------------------------------------------------------------------
+		// Initialize the sidechain
+		if WorkerModeProvider::worker_mode() == WorkerMode::Sidechain {
+			last_synced_header = sidechain_init_block_production(
+				enclave,
+				&register_enclave_xt_header,
+				we_are_primary_validateer,
+				parentchain_handler.clone(),
+				sidechain_storage,
+				&last_synced_header,
+			)
+			.unwrap();
+		}
+
+		// ------------------------------------------------------------------------
+		// start parentchain syncing loop (subscribe to header updates)
+		thread::Builder::new()
+			.name("parentchain_sync_loop".to_owned())
+			.spawn(move || {
+				if let Err(e) =
+					subscribe_to_parentchain_new_headers(parentchain_handler, last_synced_header)
+				{
+					error!("Parentchain block syncing terminated with a failure: {:?}", e);
+				}
+				println!("[!] Parentchain block syncing has terminated");
+			})
+			.unwrap();
+	}
+
+	// ------------------------------------------------------------------------
+	if WorkerModeProvider::worker_mode() == WorkerMode::Sidechain {
+		spawn_worker_for_shard_polling(shard, node_api.clone(), initialization_handler);
+	}
 }
 
 
