@@ -67,4 +67,4 @@ cli/my_trusted_keystore
 bin/light_client_db.bin.1
 
 # Config variables for the OAuth server
-/enclave-runtime/src/oauth/config.rs
+/enclave-runtime/src/oauth/client/config.rs
