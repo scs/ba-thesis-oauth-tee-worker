@@ -2,6 +2,9 @@ extern crate sgx_tstd as std;
 //use http::header::{HeaderMap, InvalidHeaderValue};
 use std::vec::Vec;
 use std::string::{String, ToString};
+use std::io::{prelude::*, BufReader};
+use std::net::{TcpStream};
+use std::collections::HashMap;
 
 pub struct Route {
     pub method: String,
@@ -13,7 +16,7 @@ pub struct Request {
     pub method: String,
     pub path: String,
     pub args: String,
-    pub cookies: Vec<(String, String)>,
+    pub cookies: HashMap<String,String>,
 }
 
 pub struct AcessTokenRequest {
@@ -30,11 +33,45 @@ pub struct ErrorResponse {
     pub error_uri: String,
 }
 
-pub fn parse_request(request_line: &str) -> Request {
+fn extract_cookies(cookie_line: &str) -> HashMap<String, String> {
+    let cookie_line = cookie_line.trim_start_matches("Cookie: ");
+    let mut cookies = HashMap::new();
+
+    for cookie in cookie_line.split(';') {
+        let parts: Vec<&str> = cookie.trim().splitn(2, '=').collect();
+        if parts.len() == 2 {
+            let key = parts[0].to_string();
+            let value = parts[1].to_string();
+            cookies.insert(key, value);
+        }
+    }
+    cookies
+}
+
+pub fn parse_request(buf_reader: BufReader<&mut TcpStream>) -> Request {
+    let mut cookie_line = String::new();
+    let mut request_line = String::new();
+
+    // Hardcoded Http Interpreting
+    for (index, line_wrap) in buf_reader.lines().enumerate() {
+        // First line is the request line e.g. "GET / HTTP/1.1"
+        let line = line_wrap.unwrap();
+        if line.is_empty() {
+            // If there is more, it "should" be the body
+            break;
+        }
+        if index == 0 {
+            request_line = line;
+            continue;
+        } else if line.starts_with("Cookie: ") {
+            cookie_line = line;
+        }
+    }
+
     let mut method = String::new();
     let mut path = String::new();
     let mut args = String::new();
-    let mut cookies = Vec::new();  // Added cookies field
+    let mut cookies = extract_cookies(&cookie_line);
 
     if let Some(end_method) = request_line.find(' ') {
         method = request_line[..end_method].to_string();
@@ -51,22 +88,11 @@ pub fn parse_request(request_line: &str) -> Request {
             args = request_line[start_args + 1..start_args + end_args].to_string();
         }
     }
-
-    // Extract cookies
-    let cookie_prefix = "Cookie: ";
-    if let Some(cookie_start) = request_line.find(cookie_prefix) {
-        let cookie_str = &request_line[cookie_start + cookie_prefix.len()..];
-        let cookie_parts: Vec<&str> = cookie_str.split(';').collect();
-
-        for cookie in cookie_parts {
-            let cookie_parts: Vec<&str> = cookie.trim().split('=').collect();
-            if cookie_parts.len() == 2 {
-                let name = cookie_parts[0].trim().to_string();
-                let value = cookie_parts[1].trim().to_string();
-                cookies.push((name, value));
-            }
-        }
-    }
+    
+    println!("Cookies:");
+    for (name, value) in &cookies {
+        println!("{}: {}", name, value);
+    };
 
     Request {
         method,

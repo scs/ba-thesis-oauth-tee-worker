@@ -53,12 +53,9 @@ fn handle_token(request: &Request) -> (String, String) {
 }
   
 pub fn handle_connection(mut stream: TcpStream) {
-    let buf_reader = BufReader::new(&mut stream);
-
-    let request_line = buf_reader.lines().next().unwrap().unwrap();
-
-    let request: Request = parse_request(request_line.as_str());
-
+    let buf_reader = BufReader::new(&mut stream);    
+    let request: Request = parse_request(buf_reader);
+    
     println!("Method: {}, Path: {}, Args: {}", request.method, request.path, request.args);
 
     let (status_line, contents) = match request.path.as_str() {
