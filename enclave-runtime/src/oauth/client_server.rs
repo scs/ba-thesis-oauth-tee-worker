@@ -1,9 +1,13 @@
 extern crate sgx_tstd as std;
+use std::vec::Vec;
 use std::io::{prelude::*, BufReader};
 use std::net::{TcpListener, TcpStream};
 use std::string::{ToString, String};
 use std::collections::HashMap;
+use serde_json::json;
+use serde_json::Value;
 
+use super::client_config::*;
 use super::html_elements::*;
 use super::types::*;
 
@@ -22,15 +26,9 @@ fn handle_service(request: &Request) -> (String, String) {
         }
     }
     // Access token is not set or not valid, prompt for grant to access resource
-    let cookie_header = "Set-Cookie: access_token=test_value; Path=/";
+    //let cookie_header = "Set-Cookie: access_token=test_value; Path=/";
 
-    let html_content = format!(
-        "{}\r\n{}",
-        "HTTP/1.1 200 OK",
-        cookie_header
-    );
-
-    (html_content, HTML_AUTHORIZATION_PROMPT.to_string())
+    ("HTTP/1.1 200 OK".to_string(), HTML_AUTHORIZATION_PROMPT.to_string())
 }
 
 fn is_valid_token(token: &str) -> bool {
@@ -54,10 +52,107 @@ fn handle_authorize(request: &Request) -> (String, String) {
         if let (Some(username), Some(password)) = (params.get("username"), params.get("password")) {
             // Access request is granted
             // Create AccessTokenRequest with username and password
-            // ...
+            // We're making immutable objects for a minimum of safety
+            let access_token_request = AccessTokenRequest {
+                request: Request{
+                    method: "POST".to_string(), 
+                    path: "localhost:7878/token".to_string(), 
+                    args: "".to_string(), 
+                    cookies: HashMap::new(),
+                    body: serde_json::Value::Null,
+                },
+                grant_type: "user_credentials".to_string(),
+                client_id: CLIENT_ID.to_string(),
+                // TODO maybe add client_secret
+                username: username.to_string(),
+                password: password.to_string(),
+                redirect_uri: "localhost:7879/service".to_string(),
+            };
+            // Send AccessTokenRequest to Authorization Server
+            let payload = json!({
+                "grant_type": json!(access_token_request.grant_type),
+                "client_id": json!(access_token_request.client_id),
+                "username": json!(access_token_request.username),
+                "password": json!(access_token_request.password),
+                "redirect_uri": json!(access_token_request.redirect_uri),
+            });
 
-            // Return a success response
-            // Should ideally redirect to given URI
+            let payload_string = payload.to_string();
+            let content_length = payload_string.len();
+
+            let request = format!(
+                "POST /token HTTP/1.1\r\n\
+                Host:localhost:7878\r\n\
+                Content-Length:{}\r\n\
+                Content-Type:application/json\r\n\
+                {}\r\n\
+                \r\n",
+                content_length,
+                payload
+            );
+            
+            let mut stream = TcpStream::connect("localhost:7878");
+            let mut stream = stream.unwrap();
+            stream.write_all(request.as_bytes()).unwrap();
+            let mut buf_reader = BufReader::new(&mut stream);
+            let mut response = String::new();
+            let mut content = false;
+            let mut payload_json = serde_json::Value::Null;
+
+            for (index, line_wrap) in buf_reader.lines().enumerate() {
+                let line = match line_wrap {
+                    Ok(line) => {
+                        if line.starts_with("Content-Length:") {
+                            content = true;
+                            continue;
+                        }
+                        if content {
+                            let payload = line.clone();
+                            if payload.is_empty() != true {
+                                let parsed_body: Result<Value, _> = serde_json::from_str(&payload);
+                                
+                                if let Ok(value) = parsed_body {
+                                    payload_json = value;
+                                    break;
+                                } else {
+                                    // Handle parsing error
+                                    if let Err(err) = parsed_body {
+                                        println!("Failed to parse JSON: {}", err);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        // Check for timeout error and break the loop
+                        // Dirty hack to make the loop break when there is no body
+                        println!("{}", e);
+                    }
+                };
+            }
+
+            let access_token_response = AccessTokenResponse {
+                access_token: get_request_field(&payload_json, "access_token"),
+                token_type: get_request_field(&payload_json, "token_type"),
+                expires_in: get_request_field(&payload_json, "expires_in").parse().unwrap_or(0)
+            };
+
+            let cookie_setter = format!(
+                "Set-Cookie: access_token={}; Path=/; Max-Age={}",
+                &access_token_response.access_token,
+                &access_token_response.expires_in
+            );
+            
+            let html_content = format!(
+                "{}\r\n{}\r\nLocation: {}\r\n\r\n",
+                "HTTP/1.1 200 OK",
+                cookie_setter,
+                access_token_request.redirect_uri
+            );
+
+            return (html_content, "Some body".to_string());
+
         } else {
             // Redirect to `/service`
             let redirect_response = ("HTTP/1.1 302 Found\nLocation: /service".to_string(), "Something went wrong...".to_string());
@@ -70,8 +165,7 @@ fn handle_authorize(request: &Request) -> (String, String) {
 
 
 pub fn handle_connection(mut stream: TcpStream) {
-    let buf_reader = BufReader::new(&mut stream);
-    let request: Request = parse_request(buf_reader);
+    let request: Request = parse_request(&stream);
     println!("Method: {}, Path: {}, Args: {}", request.method, request.path, request.args);
     
     let (status_line, contents) = match request.path.as_str() {
@@ -84,8 +178,8 @@ pub fn handle_connection(mut stream: TcpStream) {
     let length = contents.len();
 
     let response =
-        format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+        format!("{status_line}\r\nContent-Length:{length}\r\n{contents}\r\n\r\n");
 
     stream.write_all(response.as_bytes()).unwrap();
-  }
+}
   
