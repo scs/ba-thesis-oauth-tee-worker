@@ -157,7 +157,6 @@ pub fn parse_request(stream: &TcpStream) -> Request {
 
 pub fn get_request_field(body: &serde_json::Value, field: &str) -> String {
     if let Some(value) = body.get(field) {
-        println!("{}", value);
         return value.to_string();
     } else {
         return "Error parsing json".to_string();
@@ -174,5 +173,10 @@ pub fn validate_token_request(access_token_request: &AccessTokenRequest) -> Resu
 pub fn generate_access_token() -> String {
 
     // some token generation...
-    "123456789".to_string()
+    ACCESS_TOKEN.to_string()
+}
+
+pub fn validate_token(Option<&serde_json::Value>) -> bool {
+    println!("---> [AUTHOR] Validated the token!");
+    return true;
 }

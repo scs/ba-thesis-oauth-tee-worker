@@ -15,21 +15,15 @@ fn handle_resource(request: &Request) -> (String, String) {
     let mut token_valid = false;
 
     // Check if token is set and valid
-    for (name, value) in &request.cookies {
-        if name == "token" && value == "123456789" {
-            token_valid = true;
-            break;
+    if let Some(token) = request.cookies.get(&String::from("access_token")) {
+        // Check if token is valid and not void
+        if validate_token(&token) {
+            // If Access token is valid, return the ressource
+            return ("HTTP/1.1 200 OK".to_string(), HTML_RESOURCE_CONTENT.to_string());
+        } else {
+            // Token is not set or not valid
+            ("HTTP/1.1 200 OK".to_string(), HTML_DENY_TEXT.to_string())
         }
-    }
-
-    if token_valid {
-        // Token is valid, perform resource handling logic
-        // ...
-
-        ("HTTP/1.1 200 OK".to_string(), HTML_RESOURCE_CONTENT.to_string())
-    } else {
-        // Token is not set or not valid
-        ("HTTP/1.1 200 OK".to_string(), HTML_DENY_TEXT.to_string())
     }
 }
   
@@ -85,7 +79,7 @@ fn handle_token(request: &Request) -> (String, String) {
 pub fn handle_connection(mut stream: TcpStream) { 
     let request: Request = parse_request(&stream);
     
-    println!("Method: {}, Path: {}, Args: {}", request.method, request.path, request.args);
+    println!("[{}]: Received Request: Action {} on {}","AUTHOR", request.method, request.path);
 
     let (status_line, contents) = match request.path.as_str() {
         "/" => handle_root(),
@@ -99,5 +93,7 @@ pub fn handle_connection(mut stream: TcpStream) {
     let response =
         format!("{status_line}\r\nContent-Length:{length}\r\n{contents}\r\n\r\n");
 
+    println!("[{}]: Responding: {}","AUTHOR", status_line);
+    
     stream.write_all(response.as_bytes()).unwrap();
 }
