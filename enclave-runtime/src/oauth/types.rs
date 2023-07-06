@@ -8,6 +8,8 @@ use std::net::{TcpStream};
 use std::collections::HashMap;
 use serde_json::Value;
 
+use crate::oauth::client_config::ACCESS_TOKEN;
+
 pub struct Route {
     pub method: String,
     pub path: String,
@@ -166,6 +168,7 @@ pub fn get_request_field(body: &serde_json::Value, field: &str) -> String {
 pub fn validate_token_request(access_token_request: &AccessTokenRequest) -> Result<(), String> {
 
     // validation checks...
+    // Todo cleint/user cred validation trennen!
 
     Ok(())
 }
@@ -176,7 +179,10 @@ pub fn generate_access_token() -> String {
     ACCESS_TOKEN.to_string()
 }
 
-pub fn validate_token(Option<&serde_json::Value>) -> bool {
+pub fn validate_token(token: &String) -> bool {
+    // Lookup with token, check timestamp
+    // Bruteforce attack possible (spamming with keys)
+    // Solution: Connection refusal einbauen
     println!("---> [AUTHOR] Validated the token!");
     return true;
 }

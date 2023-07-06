@@ -21,13 +21,11 @@ fn handle_service(request: &Request) -> (String, String) {
         // Todo  Check if token is valid and not void or expired
         if true {
             // If Access token is valid, handle the resource request
-
-            let payload = json!({
-                "access_token": json!(token);
-            });
-
-            let payload_string = payload.to_string();
-            let content_length = payload_string.len();
+        
+            let cookie = format!(
+                "Cookie: access_token={};",
+                &token
+            );
 
             let request = format!(
                 "POST /resource HTTP/1.1\r\n\
@@ -36,8 +34,8 @@ fn handle_service(request: &Request) -> (String, String) {
                 Content-Type:application/json\r\n\
                 {}\r\n\
                 \r\n",
-                content_length,
-                payload
+                0,
+                cookie
             );
             
             let mut stream = TcpStream::connect("localhost:7878");
@@ -49,7 +47,7 @@ fn handle_service(request: &Request) -> (String, String) {
             let mut payload_json = serde_json::Value::Null;
 
             for (index, line_wrap) in buf_reader.lines().enumerate() {
-                let line = match line_wrap {
+                let line = match line_wrap {               
                     Ok(line) => {
                         if line.starts_with("Content-Length:") {
                             content = true;
@@ -68,6 +66,8 @@ fn handle_service(request: &Request) -> (String, String) {
                                     if let Err(err) = parsed_body {
                                         println!("Failed to parse JSON: {}", err);
                                         break;
+                                    } else {
+                                        println!("Something went wrong with {:?}", parsed_body);
                                     }
                                 }
                             }
@@ -80,31 +80,22 @@ fn handle_service(request: &Request) -> (String, String) {
                 };
             }
 
-            let resource_body = get_request_field(&payload_json, "resource_body"),
-            
-            let html_content = format!(
-                "{}\r\n{}\r\n\r\n",
-                "HTTP/1.1 200 OK",
-                resource_body
-            );
-
-            return (html_content, "".to_string());
+            let mut resource_body = get_request_field(&payload_json, "resource_body");
+            resource_body = resource_body.replace("\\n", "\n");
+            resource_body = resource_body.replace("\"", "");
+            return ("HTTP/1.1 200 OK".to_string(), resource_body);
 
         } else {
             // Redirect to `/service`
             let redirect_response = ("HTTP/1.1 302 Found\nLocation: /service".to_string(), "Something went wrong...".to_string());
             return redirect_response;
         }
-            // Proceed to request content from resource server
-
-            // return resource to display
-            return ("HTTP/1.1 200 OK".to_string(), HTML_RESOURCE_CONTENT.to_string());
-        }
+    } else {
+        // Access token is not set or not valid, prompt for grant to access resource
+        //let cookie_header = "Set-Cookie: access_token=test_value; Path=/";
+        println!("No token was found -- requesting authorization");
+        return ("HTTP/1.1 200 OK".to_string(), HTML_AUTHORIZATION_PROMPT.to_string());
     }
-    // Access token is not set or not valid, prompt for grant to access resource
-    //let cookie_header = "Set-Cookie: access_token=test_value; Path=/";
-
-    ("HTTP/1.1 200 OK".to_string(), HTML_AUTHORIZATION_PROMPT.to_string())
 }
 
 fn is_valid_token(token: &str) -> bool {
@@ -139,7 +130,7 @@ fn handle_authorize(request: &Request) -> (String, String) {
                 },
                 grant_type: "user_credentials".to_string(),
                 client_id: CLIENT_ID.to_string(),
-                // TODO maybe add client_secret
+                // TODO add client_secret
                 username: username.to_string(),
                 password: password.to_string(),
                 redirect_uri: "/service".to_string(),
@@ -228,7 +219,7 @@ fn handle_authorize(request: &Request) -> (String, String) {
                 "{}\r\n{}\r\nLocation: {}\r\n{}\r\n\r\n",
                 "HTTP/1.1 302 Found",
                 cookie_setter,
-                access_token_request.redirect_uri,
+                access_token_request.redirect_uri, // Todo this is wrong
                 cookie
             );
 
@@ -239,7 +230,6 @@ fn handle_authorize(request: &Request) -> (String, String) {
             let redirect_response = ("HTTP/1.1 302 Found\nLocation: /service".to_string(), "Something went wrong...".to_string());
             return redirect_response;
         }
-        return ("HTTP/1.1 200 OK".to_string(), "Access Granted".to_string());
     }
     ("HTTP/1.1 400 BAD".to_string(), "Bad Request".to_string())
 }
@@ -261,7 +251,7 @@ pub fn handle_connection(mut stream: TcpStream) {
     let response =
         format!("{status_line}\r\nContent-Length:{length}\r\n{contents}\r\n\r\n");
     
-    println!("[{}]: Responding: {}","CLIENT", status_line);
+    println!("[{}]: Responding: {}","CLIENT", response);
 
     stream.write_all(response.as_bytes()).unwrap();
 }

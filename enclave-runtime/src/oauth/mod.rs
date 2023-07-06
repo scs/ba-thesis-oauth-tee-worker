@@ -13,7 +13,7 @@ use crate::std::io::Write;
 
 mod types;
 mod client_config;
-mod client_server;
+mod oauth_client;
 mod authorization_server;
 
 mod html_elements;
@@ -38,7 +38,7 @@ pub fn start_oauth_server() {
             let stream = stream.unwrap();
             // Dirty hack to make the parser timeout 
             //stream.set_read_timeout(Some(Duration::from_millis(50)));
-            client_server::handle_connection(stream);
+            oauth_client::handle_connection(stream);
         }
     });
 

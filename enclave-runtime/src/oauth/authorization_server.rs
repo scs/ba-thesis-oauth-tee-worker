@@ -8,23 +8,32 @@ use super::html_elements::*;
 use super::types::*;
 
 fn handle_root() -> (String, String) {
+    // Todo change this to access denied
     ("HTTP/1.1 200 OK".to_string(), HTML_HELLO.to_string())
 }
 
 fn handle_resource(request: &Request) -> (String, String) {
-    let mut token_valid = false;
-
     // Check if token is set and valid
+    // If Access token is valid, return the ressource
     if let Some(token) = request.cookies.get(&String::from("access_token")) {
-        // Check if token is valid and not void
         if validate_token(&token) {
-            // If Access token is valid, return the ressource
-            return ("HTTP/1.1 200 OK".to_string(), HTML_RESOURCE_CONTENT.to_string());
-        } else {
-            // Token is not set or not valid
-            ("HTTP/1.1 200 OK".to_string(), HTML_DENY_TEXT.to_string())
-        }
+            let resource_body = json!({
+                "resource_body": HTML_RESOURCE_CONTENT,
+            });
+
+            let html_content = format!(
+                "{}\r\n{}{}\r\n{}\r\n\r\n",
+                "HTTP/1.1 200 OK",
+                "Content-Length:",
+                420, // Todo get content_length
+                resource_body
+            );
+
+            return (html_content, "Responding...".to_string());
+        } 
     }
+    // Request is denied
+    return ("HTTP/1.1 200 OK".to_string(), HTML_DENY_TEXT.to_string());
 }
   
 fn handle_token(request: &Request) -> (String, String) {
@@ -78,7 +87,6 @@ fn handle_token(request: &Request) -> (String, String) {
   
 pub fn handle_connection(mut stream: TcpStream) { 
     let request: Request = parse_request(&stream);
-    
     println!("[{}]: Received Request: Action {} on {}","AUTHOR", request.method, request.path);
 
     let (status_line, contents) = match request.path.as_str() {
