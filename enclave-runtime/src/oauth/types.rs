@@ -65,8 +65,8 @@ impl ToString for HttpResponseType {
         match self {
             HttpResponseType::Success => "Success".to_string(),
             HttpResponseType::Redirection => "Redirection".to_string(),
-            HttpResponseType::ClientError => "Client Error".to_string(),
-            HttpResponseType::ServerError => "Server Error".to_string(),
+            HttpResponseType::ClientError => "ClientError".to_string(),
+            HttpResponseType::ServerError => "ServerError".to_string(),
         }
     }
 }

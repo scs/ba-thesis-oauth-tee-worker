@@ -7,6 +7,7 @@ use std::string::{String, ToString};
 use std::str::FromStr;
 use std::borrow::ToOwned;
 use std::io::ErrorKind;
+use url::form_urlencoded;
 
 use super::types::*;
 
@@ -31,12 +32,24 @@ fn parse_request_line(buf_reader: &mut BufReader<&TcpStream>) -> RequestLine {
     let mut line = String::new();
     buf_reader.read_line(&mut line).expect("Failed to read request line");
 
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    assert!(parts.len() >= 3, "Invalid request line");
+    let mut method = HttpMethod::Get;
+    let mut path = String::new();
+    let mut http_version = String::new();
 
-    let method = HttpMethod::from_str(parts[0]).expect("Invalid HTTP method");
-    let path = parts[1].to_owned();
-    let http_version = parts[2].to_owned();
+    let parts: Vec<&str> = line.split_whitespace().collect();
+
+    for (index, part) in parts.iter().enumerate() {
+        match index {
+            0 => method = HttpMethod::from_str(part).expect("Invalid HTTP method"),
+            1 => path = part.to_string().to_owned(),
+            2 => http_version = part.to_string().to_owned(),
+            _ => {} // we might as well ignore the restf
+        }
+    }
+
+    if parts.len() == 2 {
+        http_version = "undefined".to_owned();
+    }
 
     RequestLine {
         method,
@@ -162,7 +175,7 @@ fn parse_access_token_response(response: &Response) -> AccessTokenResponse {
     }
 }
 
-fn parse_error_response(response: &Response) -> ErrorResponse {
+pub fn parse_error_response(response: &Response) -> ErrorResponse {
     let error_str = response
         .body
         .get("error")
@@ -215,7 +228,7 @@ fn parse_headers(buf_reader: &mut BufReader<&TcpStream>) -> HashMap<String, Stri
 
 fn parse_body(buf_reader: &mut BufReader<&TcpStream>) -> serde_json::Value {
     let mut body = Vec::new();
-    match buf_reader.read(&mut body) {
+    match buf_reader.read_to_end(&mut body) {
         Ok(_) => {
             // Successfully read the response body
         }
@@ -228,10 +241,23 @@ fn parse_body(buf_reader: &mut BufReader<&TcpStream>) -> serde_json::Value {
     }
 
     if body.is_empty() {
-        return serde_json::Value::Object(serde_json::Map::new());
+        return serde_json::json!({});
     }
 
-    serde_json::from_slice(&body).expect("Failed to parse response body as JSON")
+    // Check if the body is a form data
+    let body_str = String::from_utf8_lossy(&body);
+    if body_str.contains('=') && body_str.contains('&') {
+        // Parse the body as URL-encoded form data
+        let form_data: HashMap<String, String> = form_urlencoded::parse(body_str.as_bytes())
+            .into_owned()
+            .collect();
+        
+        // Convert the form data to a JSON object
+        serde_json::json!(form_data)
+    } else {
+        // Parse the body as JSON
+        serde_json::from_slice(&body).expect("Failed to parse response body as JSON")
+    }
 }
 
 pub fn parse_cookie_header(header: &str) -> HashMap<String, String> {

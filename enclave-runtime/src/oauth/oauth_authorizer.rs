@@ -19,12 +19,14 @@ pub fn handle_connection(mut stream: TcpStream) {
 
     let result = match request.request_line.path.as_str() {
         "/resource" => handle_resource(&request),
+        "/token" => handle_token(&request),
+        "/expiry" => handle_expiry(&request),
         _ => Ok(handle_404(&request)),
     };
 
     match result {
         Ok(response) => {
-            println!("[{}]: Responding:\t\t {:?}", "AUTHOR", response.response_line);
+            println!("[{}]: Responding:\t {:?}", "AUTHOR", response.response_line);
             stream.write_all(response.to_string().as_bytes()).unwrap();
         }
         Err(error_response) => {
@@ -48,18 +50,15 @@ fn handle_resource(request: &Request) -> Result<Response, ErrorResponse> {
 
     match access_token {
         Some(token) => {
-            
-            let is_valid_token = validate_token(&token);
-
-            if is_valid_token {
+            if validate_token(&token) {
                 println!("[{}] Validated the token: ", "AUTHOR");
-                println!("[{}] It expires at: {:?}", "AUTHOR", get_token_expiry(&token.as_str()));
-                Ok(create_resource_response())
+                println!("[{}] It expires at: {:?}", "AUTHOR", get_token_expiry(&token).unwrap());
+                Ok(resource_response())
             } else {
-                Ok(create_access_denied_response())
+                Err(invalid_token_response())
             }
         }
-        None => Ok(create_access_denied_response()),
+        None => Err(access_denied_response()),
     }
 }
 
@@ -68,19 +67,46 @@ fn handle_token(request: &Request) -> Result<Response, ErrorResponse> {
         Ok(access_token_request) => {
             match validate_access_token_request(&access_token_request) {
                 Ok(()) => {
-                    Ok(create_access_token_response())
+                    Ok(access_token_response())
                 }
                 Err((error, error_description, error_uri)) => {
-                    Err(create_error_response(error,
+                    Err(error_response(error,
                                         error_description,
                                         error_uri))
                 }
             }
         }
         Err((error, error_description, error_uri)) => {
-            Err(create_error_response(error,
+            Err(error_response(error,
                                 error_description,
                                 error_uri))
         }
+    }
+}
+
+fn handle_expiry(request: &Request) -> Result<Response, ErrorResponse> {
+    // Bruteforce attack possible (spamming with keys)
+    // Solution: Connection refusal system
+    // DDOS-Mitigation see https://en.wikipedia.org/wiki/DDoS_mitigation 
+    let access_token = match request.headers.get("Cookie") {
+        Some(cookie_header) => {
+            let cookie = parse_cookie_header(cookie_header);
+            cookie.get("access_token").cloned()
+        }
+        None => None,
+    };
+
+    match access_token {
+        Some(token) => {
+            
+            if validate_token(&token) {
+                println!("[{}] Validated the token: ", "AUTHOR");
+                println!("[{}] It expires at: {:?}", "AUTHOR", get_token_expiry(&token).unwrap());
+                Ok(expiry_response(&token))
+            } else {
+                Err(invalid_token_response())
+            }
+        }
+        None => Err(access_denied_response()),
     }
 }

@@ -1,0 +1,228 @@
+extern crate sgx_tstd as std;
+use std::io::Write;
+use std::net::TcpStream;
+use std::string::ToString;
+use std::collections::HashMap;
+
+use super::types::*;
+use super::parser::*;
+use super::tools::*;
+use super::oauth_authorizer_config::*;
+use super::oauth_client_config::*;
+use super::html_elements::*;
+
+
+/// The client must respond to two routes:
+/// /authorize      => authorizing an access token request
+/// /service        => access to the service that needs a resource
+pub fn handle_connection(mut stream: TcpStream) {
+    let request: Request = parse_request(&stream);
+    println!("[{}]: Received:\t\t {:?}", "CLIENT", request.request_line);
+
+    let result = match request.request_line.path.as_str() {
+        "/authorize" => handle_authorize(&request),
+        "/service" => handle_service(&request),
+        _ => Ok(handle_404(&request)),
+    };
+
+    match result {
+        Ok(response) => {
+            println!("[{}]: Responding:\t {:?}", "CLIENT", response.response_line);
+            stream.write_all(response.to_string().as_bytes()).unwrap();
+        }
+        Err(error_response) => {
+            println!("[{}]: Error:\t\t {:?}", "CLIENT", error_response);
+            stream.write_all(error_response.to_string().as_bytes()).unwrap();
+        }
+    }
+}
+
+fn handle_service(request: &Request) -> Result<Response, ErrorResponse> {
+    match request.headers.get("Cookie") {
+        Some(cookie_header) => {
+            let cookie = parse_cookie_header(cookie_header);
+            match cookie.get("access_token") {
+                Some(token) => {
+                    // A token is present so we can request the resource
+                    Ok(request_resource(&token.as_str()))
+                }
+                None => {
+                    Ok(redirect_authorize())
+                }
+            }
+        }
+        None => {
+            Ok(redirect_authorize())
+        }, 
+    }
+}
+
+fn handle_authorize(request: &Request) -> Result<Response, ErrorResponse>{
+    match request.request_line.method {
+        HttpMethod::Get => {
+            let response_line = ResponseLine {
+                http_version: "HTTP/1.1".to_string(),
+                status_code: 200,
+                response_type: HttpResponseType::Success,
+            };
+            
+            let mut headers = HashMap::new();
+            headers.insert("Content-Type".to_string(), "text/html".to_string());
+
+            let html_content = match request.body.as_str() {
+                Some(content) => {content}
+                None => {""}
+            };
+
+            let body = serde_json::json!({
+                "html_content": html_authorization_prompt(&html_content),
+            });
+
+            Ok(Response {
+                response_line,
+                headers,
+                body
+            })
+        }
+        HttpMethod::Post => {
+            let request_line = RequestLine {
+                method: HttpMethod::Get,
+                path: "/token".to_string(),
+                http_version: "HTTP/1.1".to_string(),
+            };
+        
+            let mut headers = HashMap::new();
+            headers.insert("Content-Type".to_string(), "application/json".to_string());
+        
+            let username = request
+                .body
+                .get("username")
+                .ok_or((ErrorCode::InvalidGrant, "Missing username header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.3"))
+                .unwrap()
+                .to_string();
+
+            let password = request
+                .body
+                .get("password")
+                .ok_or((ErrorCode::InvalidGrant, "Missing password header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.3"))
+                .unwrap()
+                .to_string();
+
+            let request_body = serde_json::json!({
+                "grant_type": GrantType::ResourceOwnerPasswordCredentials.to_string(),
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "username": username,
+                "password": password,
+            });
+            
+            let access_token_request = Request {
+                request_line,
+                headers,
+                body: request_body
+            };
+
+            let response = send(&access_token_request, &AUTHOR_URL);
+
+            let mut values = serde_json::json!({});
+
+            match response.body.get("access_token") { 
+                Some(access_token) => {
+                    values = serde_json::json!({
+                        "access_token": access_token.to_string(),
+                        "token_type": response.body["token_type"],
+                        "expires_in_s": response.body["expires_in_s"]
+                    });
+                }
+                None => {
+                    return Err(parse_error_response(&response));
+                }
+            }
+
+            let response_line = ResponseLine {
+                http_version: "HTTP/1.1".to_string(),
+                status_code: 302,
+                response_type: HttpResponseType::Redirection,
+            };
+            
+            let mut headers = HashMap::new();
+            headers.insert("Location".to_string(), "/service".to_string());
+            headers.insert("Cookie".to_string(), format!("access_token={}",values["access_token"]));
+            let access_token_setter = format!(
+                "access_token={}; Path=/; Max-Age=3600",
+                &values["access_token"].as_str().unwrap()
+            );
+            let expiry_setter = format!(
+                "expires_in_s={}; Path=/; Max-Age=3600",
+                &values["expires_in_s"].as_str().unwrap()
+            );
+
+            // For multiple cookies, multiple Set-Cookie headers should be used
+            // see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie
+            headers.insert("Set-Cookie".to_string(), access_token_setter);
+            // Adding a space after cookie because headers is a hash map...
+            headers.insert("Set-Cookie ".to_string(), expiry_setter);
+
+            let body = serde_json::json!({});
+
+            Ok(Response {
+                response_line,
+                headers,
+                body
+            })
+        }
+        _ => Ok(handle_404(&request))
+    }
+}
+
+fn request_resource(token: &str) -> Response {
+    let request_line = RequestLine {
+        method: HttpMethod::Get,
+        path: "/resource".to_string(),
+        http_version: "HTTP/1.1".to_string(),
+    };
+
+    let mut headers = HashMap::new();
+    headers.insert("Cookie".to_string(), format!("access_token={}", token));
+
+    let body = serde_json::json!({
+        "access_token": token
+    });
+
+    let request = Request {
+        request_line,
+        headers,
+        body,
+    };
+
+    let response = send(&request, &AUTHOR_URL);
+    match response.body.get("html_content") { 
+        Some(resource_content) => {
+            // This means we have a resource and the request was successfull
+            response_with_resource_content(&resource_content.to_string(), &token.to_string())
+        }
+        None => {
+            // An error occured somewhere
+            response_with_error_content(&response)
+        } 
+    }
+}
+
+fn redirect_authorize() -> Response {
+    let response_line = ResponseLine {
+        http_version: "HTTP/1.1".to_string(),
+        status_code: 302,
+        response_type: HttpResponseType::Redirection,
+    };
+    
+    let mut headers = HashMap::new();
+    headers.insert("Location".to_string(), "/authorize".to_string());
+
+    let body = serde_json::json!({});
+
+    Response {
+        response_line,
+        headers,
+        body
+    }
+}
