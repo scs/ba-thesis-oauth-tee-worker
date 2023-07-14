@@ -7,6 +7,8 @@ use std::borrow::ToOwned;
 use sgx_rand::Rng;
 use lazy_static::lazy_static;
 
+use super::tools::*;
+
 // Token base singleton
 lazy_static! {
     static ref TOKEN_BASE: SgxMutex<TokenBase> = SgxMutex::new(TokenBase::new());
@@ -17,42 +19,32 @@ fn get_token_base() -> std::sync::SgxMutexGuard<'static, TokenBase> {
 }
 
 #[derive(Debug)]
-pub struct TokenBase {
-    base: HashMap<String, SystemTime>,
+struct TokenBase {
+    tokens: HashMap<String, SystemTime>,
 }
 
 impl TokenBase {
     fn new() -> TokenBase {
         TokenBase {
-            base: HashMap::new(),
+            tokens: HashMap::new(),
         }
     }
 
-    fn get_expiry(&mut self, token: &String) -> Option<SystemTime> {
-        self.base.get(&token.as_str()).cloned()
-    }
-
     fn insert_token(&mut self, token: &String, expiry: SystemTime) {
-        println!("Base: {:?}", self.base);
-        self.base.insert(&token, expiry);
+        self.tokens.insert(token.to_owned(), expiry);
     }
 
-    fn is_token_valid(&mut self, token: &String) -> bool {
-        println!("Base: {:?}", self.base);
-        match self.base.get(&token.as_str()) {    
-            Some(expiry) => {
-                if expiry > &SystemTime::now() {
-                    println!("\t--->[{}] Token {} is valid", "TOKEN_BASE", token);
-                    true
-                } else {
-                    println!("\t--->[{}] Token {} is expired", "TOKEN_BASE", token);
-                    false
-                }
-            }
-            None => {
-                println!("\t--->[{}] Token {} isn't in base", "TOKEN_BASE", token);
-                false
-            }
+    fn get_expiry(&self, token: &String) -> Option<SystemTime> {
+        match self.tokens.get(token) {
+            Some(expiry) => Some(expiry.clone()),
+            None => None,
+        }
+    }
+
+    fn is_token_valid(&self, token: &String) -> bool {
+        match self.get_expiry(token) {
+            Some(expiry) => expiry > SystemTime::now(),
+            None => false,
         }
     }
 }
@@ -70,11 +62,13 @@ pub fn generate_token() -> String {
 }
 
 pub fn get_token_expiry(token: &String) -> Option<SystemTime> {
-    get_token_base().get_expiry(token)
+    let mut token = clear_quotes(token);
+    get_token_base().get_expiry(&token)
 }
 
 pub fn get_token_validity(token: &String) -> bool {
-    get_token_base().is_token_valid(token)
+    let mut token = clear_quotes(token);
+    get_token_base().is_token_valid(&token)
 }
 
 fn generate_random_token() -> String {

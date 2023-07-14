@@ -12,22 +12,17 @@ use std::string::String;
  * Dynamic contents
  *******************/
 
-pub fn html_resource_table(resource_content: &str, token: &str, expiry: &str) -> String {
-  return format!("
-  <table>
-    <tr>
-      <th>Resource</th>
-      <th>Token</th>
-      <th>Expiry</th>
-    </tr>
-    <tr>
-      <td>{}</td>
-      <td>{}</td>
-      <td>{}</td>
-    </tr>
-  </table>
-  ", resource_content, token, expiry);
+ pub fn html_resource_table(resource_content: &str, token: &str, expiry: &str) -> String {
+  format!(
+      "
+      <br>
+      <p>Resource Content: {}<br>
+      Accessed with token: {}<br>
+      Token expires in {} seconds!<br></p>",
+      resource_content, token, expiry
+    )
 }
+
 
 pub fn html_authorization_prompt(error: &str) -> String {
   return format!("{}\n\n{}\n</body>\n</html>", HTML_AUTHORIZATION_PROMPT, error);
@@ -52,9 +47,7 @@ pub static HTML_404: &str ="
 </html>
 ";
 
-pub static HTML_RESOURCE: &str = "
-<p>This is the content of the protected resource.</p>
-";
+pub static HTML_RESOURCE: &str = "This is the content of the protected resource.";
 
 pub static HTML_ACCESS_DENIED: &str = "
 <!DOCTYPE html>
@@ -71,6 +64,7 @@ pub static HTML_RESOURCE_HEADER: &str = "
     <title>Protected Resource</title>
   </head>
   <body>
+  <title>Protected Resource</title>
 ";
 
 pub static HTML_RESOURCE_FOOTER: &str = "

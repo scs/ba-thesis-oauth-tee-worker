@@ -10,6 +10,7 @@ use super::tools::*;
 use super::oauth_authorizer_config::*;
 use super::oauth_client_config::*;
 use super::html_elements::*;
+use super::credential_checks::*;
 
 
 /// The client must respond to two routes:
@@ -32,7 +33,8 @@ pub fn handle_connection(mut stream: TcpStream) {
         }
         Err(error_response) => {
             println!("[{}]: Error:\t\t {:?}", "CLIENT", error_response);
-            stream.write_all(error_response.to_string().as_bytes()).unwrap();
+            let response = response_with_error_content_from_error(&error_response);
+            stream.write_all(response.to_string().as_bytes()).unwrap();
         }
     }
 }
@@ -111,9 +113,9 @@ fn handle_authorize(request: &Request) -> Result<Response, ErrorResponse>{
             let request_body = serde_json::json!({
                 "grant_type": GrantType::ResourceOwnerPasswordCredentials.to_string(),
                 "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
+                "client_secret": hash_value(&clear_quotes(&CLIENT_SECRET.to_string())),
                 "username": username,
-                "password": password,
+                "password": hash_value(&clear_quotes(&password)),
             });
             
             let access_token_request = Request {
@@ -152,16 +154,8 @@ fn handle_authorize(request: &Request) -> Result<Response, ErrorResponse>{
                 "access_token={}; Path=/; Max-Age=3600",
                 &values["access_token"].as_str().unwrap()
             );
-            let expiry_setter = format!(
-                "expires_in_s={}; Path=/; Max-Age=3600",
-                &values["expires_in_s"].as_str().unwrap()
-            );
 
-            // For multiple cookies, multiple Set-Cookie headers should be used
-            // see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie
             headers.insert("Set-Cookie".to_string(), access_token_setter);
-            // Adding a space after cookie because headers is a hash map...
-            headers.insert("Set-Cookie ".to_string(), expiry_setter);
 
             let body = serde_json::json!({});
 
@@ -196,7 +190,7 @@ fn request_resource(token: &str) -> Response {
     };
 
     let response = send(&request, &AUTHOR_URL);
-    match response.body.get("html_content") { 
+    match response.body.get("resource_content") { 
         Some(resource_content) => {
             // This means we have a resource and the request was successfull
             response_with_resource_content(&resource_content.to_string(), &token.to_string())

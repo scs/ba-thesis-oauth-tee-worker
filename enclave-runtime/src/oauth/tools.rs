@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::string::{String, ToString};
 use std::net::TcpStream;
 use std::io::Write;
+use std::borrow::ToOwned;
 
 use super::types::*;
 use super::html_elements::*;
@@ -65,6 +66,14 @@ pub fn send(request: &Request, adress: &str) -> Response {
     parse_response(&stream)
 }
 
+pub fn clear_quotes(value: &String) -> String {
+    let mut value = value.to_owned();
+    if value.starts_with('"') && value.ends_with('"') {
+        value = value[1..value.len()-1].to_owned();
+    }
+    value
+}
+
 /************************************\
  *           Authorizer             *
 \************************************/
@@ -77,10 +86,10 @@ pub fn resource_response() -> Response {
     };
 
     let mut headers = HashMap::new();
-    headers.insert("Content-Type".to_string(), "text/html".to_string());
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
 
     let body = serde_json::json!({
-        "html_content": HTML_RESOURCE.to_string()
+        "resource_content": HTML_RESOURCE.to_string()
     });
 
     Response {
@@ -202,6 +211,36 @@ pub fn response_with_error_content(response: &Response) -> Response {
     }
 }
 
+pub fn response_with_error_content_from_error(error_response: &ErrorResponse) -> Response {
+    let response_line = ResponseLine {
+        http_version: "HTTP/1.1".to_string(),
+        status_code: 200,
+        response_type: HttpResponseType::Success,
+    };
+    
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".to_string(), "text/html".to_string());
+
+    let html_content = format!("<br>
+                                <p>Error Code: {}<br>
+                                Description: {}<br>
+                                Helpful <strong><a href={}>link</a></strong>.<br></p>",
+                                error_response.error.to_string(),
+                                error_response.error_description,
+                                error_response.error_uri
+                                );
+    
+    let body = serde_json::json!({
+        "html_content": html_authorization_prompt(&html_content.as_str()),
+    });
+
+    Response {
+        response_line,
+        headers,
+        body
+    }
+}
+
 pub fn request_expiry(token: &str) -> String {
     let request_line = RequestLine {
         method: HttpMethod::Get,
@@ -223,9 +262,9 @@ pub fn request_expiry(token: &str) -> String {
     };
 
     let response = send(&request, &AUTHOR_URL);
-    match response.body.get("expiry_time") { 
-        Some(expiry_time) => {
-            expiry_time.to_string()
+    match response.body.get("expires_in_s") { 
+        Some(expires_in_s) => {
+            expires_in_s.to_string()
         }
         None => {
             "Something went wrong while getting the expiry time".to_string()

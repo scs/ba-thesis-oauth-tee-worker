@@ -80,7 +80,8 @@ serde               = { tag = "sgx_1.1.3", git = "https://github.com/mesalock-li
 serde_derive        = { git = "https://github.com/mesalock-linux/serde-sgx" }
 serde_json          = { tag = "sgx_1.1.3", git = "https://github.com/mesalock-linux/serde-json-sgx" }
 webpki              = { git = "https://github.com/mesalock-linux/webpki", branch = "mesalock_sgx" }
-url                 = { git = "https://github.com/mesalock-linux/rust-url-sgx.git", features = ["sgx_tstd"]  }
+url                 = { git = "https://github.com/mesalock-linux/rust-url-sgx.git", features = ["sgx_tstd"] }
+bcrypt              = { version = "0.15.0", default-features = false, features = ["alloc"] }
 
 
 oauth2              = { git = "https://github.com/TitusVM/oauth2-rs-sgx.git" }

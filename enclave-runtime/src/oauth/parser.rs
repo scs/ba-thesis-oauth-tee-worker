@@ -256,7 +256,8 @@ fn parse_body(buf_reader: &mut BufReader<&TcpStream>) -> serde_json::Value {
         serde_json::json!(form_data)
     } else {
         // Parse the body as JSON
-        serde_json::from_slice(&body).expect("Failed to parse response body as JSON")
+        println!("Body: {}", body_str);
+        serde_json::from_str(&body_str).expect("Failed to parse response body as JSON")
     }
 }
 

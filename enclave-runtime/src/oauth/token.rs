@@ -2,6 +2,8 @@ extern crate sgx_tstd as std;
 use std::collections::HashMap;
 use std::string::{String, ToString};
 use std::time::SystemTime;
+use std::borrow::ToOwned;
+
 
 use super::types::*;
 use super::token_base::*;
@@ -35,7 +37,7 @@ pub fn validate_access_token_request(access_token_request: &AccessTokenRequest) 
 }
 
 pub fn validate_token(token: &str) -> bool {
-    return get_token_validity(&token.to_string());
+    return get_token_validity(&token.to_owned());
 }
 
 pub fn expiry_response(token: &String) -> Response {
@@ -48,17 +50,13 @@ pub fn expiry_response(token: &String) -> Response {
     let mut headers = HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-    let expiry = match get_token_expiry(&token) {
-        Some(expiry_time) => {
-            expiry_time.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs().to_string()
-        }
-        None => {
-            "Something went wrong while looking up the token's expiry".to_string()
-        }
-    };   
+    let expiry = get_token_expiry(&token).unwrap();
+
+    let expires_in_s = expiry.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() 
+                    - SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();  
 
     let body = serde_json::json!({
-        "expiry_time": expiry,
+        "expires_in_s": expires_in_s,
     });
 
     Response {

@@ -51,7 +51,7 @@ fn handle_resource(request: &Request) -> Result<Response, ErrorResponse> {
     match access_token {
         Some(token) => {
             if validate_token(&token) {
-                println!("[{}] Validated the token: ", "AUTHOR");
+                println!("[{}] Validated the token: {}", "AUTHOR", token);
                 println!("[{}] It expires at: {:?}", "AUTHOR", get_token_expiry(&token).unwrap());
                 Ok(resource_response())
             } else {
@@ -100,8 +100,8 @@ fn handle_expiry(request: &Request) -> Result<Response, ErrorResponse> {
         Some(token) => {
             
             if validate_token(&token) {
-                println!("[{}] Validated the token: ", "AUTHOR");
-                println!("[{}] It expires at: {:?}", "AUTHOR", get_token_expiry(&token).unwrap());
+                println!("[{}]: Validated the token: ", "AUTHOR");
+                println!("[{}]: It expires at: {:?}", "AUTHOR", get_token_expiry(&token).unwrap());
                 Ok(expiry_response(&token))
             } else {
                 Err(invalid_token_response())
