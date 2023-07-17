@@ -114,7 +114,7 @@ fn handle_authorize(request: &Request) -> Result<Response, ErrorResponse>{
                 "grant_type": GrantType::ResourceOwnerPasswordCredentials.to_string(),
                 "client_id": CLIENT_ID,
                 "client_secret": hash_value(&clear_quotes(&CLIENT_SECRET.to_string())),
-                "username": username,
+                "username": clear_quotes(&username),
                 "password": hash_value(&clear_quotes(&password)),
             });
             
