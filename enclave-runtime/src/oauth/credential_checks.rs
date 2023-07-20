@@ -1,17 +1,15 @@
 extern crate sgx_tstd as sgx;
 use std::string::{String, ToString};
-use std::borrow::ToOwned;
-use bcrypt::{hash_with_salt, verify, BcryptError};
+use bcrypt::{hash_with_salt};
 use bcrypt::Version::TwoB;
 use super::types::*;
-use super::tools::*;
 
 
-static USERNAME: &str = "user";
-static PASSWORD: &str = "asdf";
+static USERNAME: &str = r#"user"#;
+static PASSWORD: &str = r#"asdf"#;
 
-static CLIENT_ID: &str = "client_id";
-static CLIENT_SECRET: &str = "client_secret";
+static CLIENT_ID: &str = r#"client_id"#;
+static CLIENT_SECRET: &str = r#"client_secret"#;
 
 // Some salt... 
 // (It says: "helloworlditsme!" - you're welcome)
@@ -24,13 +22,8 @@ pub fn hash_value(value: &str) -> String {
     }
 }
 
-fn check_value(given_value: &str, known_value: &str) -> bool {
-    given_value == known_value
-}
-
-pub fn client(client_id: &str, client_secret: &str) -> Result<(), (ErrorCode, String, String)> {
-    match check_value(&clear_quotes(&client_id.to_string()), &clear_quotes(&CLIENT_ID.to_string()))
-    && check_value(&clear_quotes(&client_secret.to_string()), &hash_value(&clear_quotes(&CLIENT_SECRET.to_string()))) {
+pub fn verify_client(client_id: &str, client_secret: &str) -> Result<(), (ErrorCode, String, String)> {
+    match client_id == CLIENT_ID && client_secret == hash_value(CLIENT_SECRET) {
             true => Ok(()),
             false => Err((ErrorCode::InvalidGrant,
                 "Client credentials not valid".to_string(),
@@ -38,9 +31,8 @@ pub fn client(client_id: &str, client_secret: &str) -> Result<(), (ErrorCode, St
         }
 }
 
-pub fn user(username: &str, password: &str) -> Result<(), (ErrorCode, String, String)> {
-    match check_value(&clear_quotes(&username.to_string()), &clear_quotes(&USERNAME.to_string()))
-        && check_value(&clear_quotes(&password.to_string()), &hash_value(&clear_quotes(&PASSWORD.to_string()))) {
+pub fn verify_user(username: &str, password: &str) -> Result<(), (ErrorCode, String, String)> {
+    match username == USERNAME && password == hash_value(PASSWORD) {
             true => Ok(()),
             false => Err((ErrorCode::InvalidGrant,
                 "User credentials not valid".to_string(),

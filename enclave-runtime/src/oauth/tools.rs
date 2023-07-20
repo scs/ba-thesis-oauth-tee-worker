@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::string::{String, ToString};
 use std::net::TcpStream;
 use std::io::Write;
-use std::borrow::ToOwned;
 
 use super::types::*;
 use super::html_elements::*;
@@ -14,7 +13,7 @@ use super::oauth_authorizer_config::*;
  *             Generics             *
 \************************************/
 
-pub fn handle_404(request: &Request) -> Response {
+pub fn handle_404(_request: &Request) -> Response {
     let response_line = ResponseLine {
         http_version: "HTTP/1.1".to_string(),
         status_code: 404,
@@ -60,18 +59,9 @@ pub fn error_response(error: ErrorCode, error_description: String, error_uri: St
 }
 
 pub fn send(request: &Request, adress: &str) -> Response {
-    let mut stream = TcpStream::connect(adress);
-    let mut stream = stream.unwrap();
+    let mut stream = TcpStream::connect(adress).unwrap();
     stream.write_all(request.to_string().as_bytes()).unwrap();
     parse_response(&stream)
-}
-
-pub fn clear_quotes(value: &String) -> String {
-    let mut value = value.to_owned();
-    if value.starts_with('"') && value.ends_with('"') {
-        value = value[1..value.len()-1].to_owned();
-    }
-    value
 }
 
 /************************************\
@@ -155,7 +145,7 @@ pub fn invalid_token_response() -> ErrorResponse {
  *             Client               *
 \************************************/
 
-pub fn response_with_resource_content(resource_content: &String, token: &String) -> Response {
+pub fn response_with_resource_content(resource_content: &str, token: &str) -> Response {
     let response_line = ResponseLine {
         http_version: "HTTP/1.1".to_string(),
         status_code: 200,
@@ -165,12 +155,12 @@ pub fn response_with_resource_content(resource_content: &String, token: &String)
     let mut headers = HashMap::new();
     headers.insert("Content-Type".to_string(), "text/html".to_string());
 
-    let expiry = request_expiry(&token.as_str());
+    let expiry = request_expiry(token);
     
     let body = serde_json::json!({
         "html_content": format!("{}\n{}\n{}", 
                                 HTML_RESOURCE_HEADER, 
-                                html_resource_table(&resource_content.as_str(), &token.as_str(), &expiry),
+                                html_resource_table(resource_content, token, &expiry),
                                 HTML_RESOURCE_FOOTER)
     });
 
@@ -201,7 +191,7 @@ pub fn response_with_error_content(response: &Response) -> Response {
                                 );
     
     let body = serde_json::json!({
-        "html_content": html_authorization_prompt(&html_content.as_str()),
+        "html_content": html_authorization_prompt(html_content.as_str()),
     });
 
     Response {
@@ -231,7 +221,7 @@ pub fn response_with_error_content_from_error(error_response: &ErrorResponse) ->
                                 );
     
     let body = serde_json::json!({
-        "html_content": html_authorization_prompt(&html_content.as_str()),
+        "html_content": html_authorization_prompt(html_content.as_str()),
     });
 
     Response {
@@ -261,7 +251,7 @@ pub fn request_expiry(token: &str) -> String {
         body,
     };
 
-    let response = send(&request, &AUTHOR_URL);
+    let response = send(&request, AUTHOR_URL);
     match response.body.get("expires_in_s") { 
         Some(expires_in_s) => {
             expires_in_s.to_string()

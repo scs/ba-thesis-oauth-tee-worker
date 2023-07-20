@@ -38,7 +38,8 @@ pub fn start_oauth_server() {
     let authorizer_thread = thread::spawn(move || {
         for stream in authorizer_listener.incoming() {
             let stream = stream.unwrap();
-            stream.set_read_timeout(Some(read_timeout_duration));
+            stream.set_read_timeout(Some(read_timeout_duration))
+                .expect("Error: Couldn't set read timeout on authorizer!");
             oauth_authorizer::handle_connection(stream);
         }
     });
@@ -46,7 +47,8 @@ pub fn start_oauth_server() {
     let client_thread = thread::spawn(move || {
         for stream in client_listener.incoming() {
             let stream = stream.unwrap();
-            stream.set_read_timeout(Some(read_timeout_duration));
+            stream.set_read_timeout(Some(read_timeout_duration))
+                .expect("Error: Couldn't set read timeout on client!");
             oauth_client::handle_connection(stream);
         }
     });

@@ -7,8 +7,6 @@ use std::borrow::ToOwned;
 use sgx_rand::Rng;
 use lazy_static::lazy_static;
 
-use super::tools::*;
-
 // Token base singleton
 lazy_static! {
     static ref TOKEN_BASE: SgxMutex<TokenBase> = SgxMutex::new(TokenBase::new());
@@ -34,14 +32,11 @@ impl TokenBase {
         self.tokens.insert(token.to_owned(), expiry);
     }
 
-    fn get_expiry(&self, token: &String) -> Option<SystemTime> {
-        match self.tokens.get(token) {
-            Some(expiry) => Some(expiry.clone()),
-            None => None,
-        }
+    fn get_expiry(&self, token: &str) -> Option<SystemTime> {
+        self.tokens.get(&token.to_string()).copied()
     }
 
-    fn is_token_valid(&self, token: &String) -> bool {
+    fn is_token_valid(&self, token: &str) -> bool {
         match self.get_expiry(token) {
             Some(expiry) => expiry > SystemTime::now(),
             None => false,
@@ -53,7 +48,7 @@ pub fn generate_token() -> String {
     let mut token = generate_random_token();
     let expiry = SystemTime::now() + Duration::from_secs(30);
 
-    while get_token_base().is_token_valid(&token) {
+    while get_token_base().is_token_valid(token.as_str()) {
         token = generate_random_token();
     }
 
@@ -61,14 +56,12 @@ pub fn generate_token() -> String {
     token
 }
 
-pub fn get_token_expiry(token: &String) -> Option<SystemTime> {
-    let mut token = clear_quotes(token);
-    get_token_base().get_expiry(&token)
+pub fn get_token_expiry(token: &str) -> Option<SystemTime> {
+    get_token_base().get_expiry(token)
 }
 
-pub fn get_token_validity(token: &String) -> bool {
-    let mut token = clear_quotes(token);
-    get_token_base().is_token_valid(&token)
+pub fn get_token_validity(token: &str) -> bool {
+    get_token_base().is_token_valid(token)
 }
 
 fn generate_random_token() -> String {

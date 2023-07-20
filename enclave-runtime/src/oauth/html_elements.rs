@@ -2,9 +2,7 @@ extern crate sgx_tstd as std;
 use std::string::String;
 
 /**
- * html_elements.rs
- * 
- * This file contains the HTML elements used by the server.
+ * This file contains the HTML elements used by the client UI.
  **/
 
 
@@ -25,7 +23,7 @@ use std::string::String;
 
 
 pub fn html_authorization_prompt(error: &str) -> String {
-  return format!("{}\n\n{}\n</body>\n</html>", HTML_AUTHORIZATION_PROMPT, error);
+  format!("{}\n\n{}\n</body>\n</html>", HTML_AUTHORIZATION_PROMPT, error)
 }
 
 
@@ -47,14 +45,12 @@ pub static HTML_404: &str ="
 </html>
 ";
 
-pub static HTML_RESOURCE: &str = "This is the content of the protected resource.";
 
-pub static HTML_ACCESS_DENIED: &str = "
-<!DOCTYPE html>
-<html lang='en'>
-    Access Denied
-</html>
-";
+/*******************
+ * Protected Resource
+ *******************/
+
+pub static HTML_RESOURCE: &str = "This is the content of the protected resource.";
 
 pub static HTML_RESOURCE_HEADER: &str = "
 <!DOCTYPE html>
@@ -71,6 +67,10 @@ pub static HTML_RESOURCE_FOOTER: &str = "
   </body>
 </html>
 ";
+
+/*******************
+ * Authorization form
+ *******************/
 
 pub static HTML_AUTHORIZATION_PROMPT: &str = "
 <!DOCTYPE html>

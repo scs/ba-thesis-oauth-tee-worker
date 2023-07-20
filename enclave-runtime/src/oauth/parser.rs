@@ -59,52 +59,49 @@ fn parse_request_line(buf_reader: &mut BufReader<&TcpStream>) -> RequestLine {
 }
 
 pub fn parse_access_token_request(request: &Request) -> Result<AccessTokenRequest, (ErrorCode, String, String)> {
+    
     let grant_type_str = request
         .body
         .get("grant_type")
         .ok_or((ErrorCode::InvalidGrant, "Missing grant_type header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4"))
         .unwrap();
 
-    let mut grant_type = GrantType::from_str(&grant_type_str.as_str()
+    let grant_type = GrantType::from_str(grant_type_str.as_str()
                                     .ok_or((ErrorCode::InvalidGrant, "Field grant_type is invalid", "https://datatracker.ietf.org/doc/html/rfc6749#section-4"))
                                     .unwrap())
-                        .unwrap();
+                                .unwrap();
 
     let client_id = request
-        .body
-        .get("client_id")
-        .ok_or((ErrorCode::InvalidClient, "Missing client_id header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1"))
-        .unwrap()
-        .to_string();
+            .body
+            .get("client_id")
+            .ok_or((ErrorCode::InvalidClient, "Missing client_id header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1"))
+            .unwrap().as_str().unwrap();
 
     let client_secret = request
-        .body
-        .get("client_secret")
-        .ok_or((ErrorCode::InvalidClient, "Missing client_secret header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1"))
-        .unwrap()
-        .to_string();
+            .body
+            .get("client_secret")
+            .ok_or((ErrorCode::InvalidClient, "Missing client_secret header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1"))
+            .unwrap().as_str().unwrap();
 
     let username = request
-        .body
-        .get("username")
-        .ok_or((ErrorCode::InvalidGrant, "Missing username header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.3"))
-        .unwrap()
-        .to_string();
+            .body
+            .get("username")
+            .ok_or((ErrorCode::InvalidGrant, "Missing username header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.3"))
+            .unwrap().as_str().unwrap();
 
     let password = request
-        .body
-        .get("password")
-        .ok_or((ErrorCode::InvalidGrant, "Missing password header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.3"))
-        .unwrap()
-        .to_string();
+            .body
+            .get("password")
+            .ok_or((ErrorCode::InvalidGrant, "Missing password header", "https://datatracker.ietf.org/doc/html/rfc6749#section-4.3"))
+            .unwrap().as_str().unwrap();
 
     Ok(AccessTokenRequest {
         request: request.clone(),
-        grant_type: grant_type.clone(),
-        client_id,
-        client_secret,
-        username,
-        password,
+        grant_type,
+        client_id: client_id.to_string(),
+        client_secret: client_secret.to_string(),
+        username: username.to_string(),
+        password: password.to_string(),
     })
 }
 
@@ -143,35 +140,6 @@ fn parse_response_line(buf_reader: &mut BufReader<&TcpStream>) -> ResponseLine {
         http_version,
         status_code,
         response_type,
-    }
-}
-
-fn parse_access_token_response(response: &Response) -> AccessTokenResponse {
-    let access_token = response
-        .body
-        .get("access_token")
-        .and_then(|val| val.as_str())
-        .expect("Missing or invalid access_token field in response body")
-        .to_owned();
-    let token_type_str = response
-        .body
-        .get("token_type")
-        .expect("Missing token_type field in response body");
-
-    let token_type = TokenType::from_str(token_type_str.as_str().unwrap())
-        .expect("Invalid token_type");
-    
-    let expires_in = response
-        .body
-        .get("expires_in")
-        .and_then(|val| val.as_u64())
-        .expect("Missing or invalid expires_in field in response body");
-
-    AccessTokenResponse {
-        response: response.clone(),
-        access_token,
-        token_type,
-        expires_in,
     }
 }
 
@@ -256,7 +224,6 @@ fn parse_body(buf_reader: &mut BufReader<&TcpStream>) -> serde_json::Value {
         serde_json::json!(form_data)
     } else {
         // Parse the body as JSON
-        println!("Body: {}", body_str);
         serde_json::from_str(&body_str).expect("Failed to parse response body as JSON")
     }
 }

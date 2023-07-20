@@ -2,13 +2,10 @@ extern crate sgx_tstd as std;
 use std::collections::HashMap;
 use std::string::{String, ToString};
 use std::time::SystemTime;
-use std::borrow::ToOwned;
-
 
 use super::types::*;
 use super::token_base::*;
 use super::credential_checks::*;
-
 
 pub fn validate_access_token_request(access_token_request: &AccessTokenRequest) -> Result<(), (ErrorCode, String, String)> {
     let fields = [
@@ -26,9 +23,9 @@ pub fn validate_access_token_request(access_token_request: &AccessTokenRequest) 
         }
     }
 
-    match client(&access_token_request.client_id.as_str(), &access_token_request.client_secret.as_str()) {
+    match verify_client(access_token_request.client_id.as_str(), access_token_request.client_secret.as_str()) {
         Ok(()) => {
-            user(&access_token_request.username.as_str(), &access_token_request.password.as_str())
+            verify_user(access_token_request.username.as_str(), access_token_request.password.as_str())
         }
         Err((error, error_description, error_uri)) => {
             Err((error, error_description, error_uri))
@@ -36,11 +33,7 @@ pub fn validate_access_token_request(access_token_request: &AccessTokenRequest) 
     }
 }
 
-pub fn validate_token(token: &str) -> bool {
-    return get_token_validity(&token.to_owned());
-}
-
-pub fn expiry_response(token: &String) -> Response {
+pub fn expiry_response(token: &str) -> Response {
     let response_line = ResponseLine {
         http_version: "HTTP/1.1".to_string(),
         status_code: 200,
@@ -50,7 +43,7 @@ pub fn expiry_response(token: &String) -> Response {
     let mut headers = HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-    let expiry = get_token_expiry(&token).unwrap();
+    let expiry = get_token_expiry(token).unwrap();
 
     let expires_in_s = expiry.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() 
                     - SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();  
@@ -78,7 +71,7 @@ pub fn access_token_response() -> Response {
 
     let token = generate_token();
 
-    let expiry = get_token_expiry(&token).unwrap();
+    let expiry = get_token_expiry(token.as_str()).unwrap();
 
     let expires_in_s = expiry.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() 
                     - SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
